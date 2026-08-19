@@ -71,11 +71,28 @@ export function publicUser(u, settings = null) {
 
 export function graceInfo(u, settings = null) {
   const s = settings || getSettings();
+  if (u.role === 'admin') return { active: false, ends_at: null, days_left: 0, total_days: 0 };
   const graceDays = Math.max(0, Number(s.withdrawal_grace_days) || 0);
-  const explicit = u.grace_ends_at ? Date.parse(u.grace_ends_at) : null;
-  const defaultEnd = graceDays > 0 && u.created_at ? Date.parse(u.created_at) + graceDays * 86400000 : null;
-  const endMs = Math.max(explicit || 0, defaultEnd || 0);
+
+  const hasExplicit = !!u.grace_ends_at;
+  const explicit = hasExplicit ? Date.parse(u.grace_ends_at) : null;
   const now = Date.now();
+
+  // Explicit admin override (grace_ends_at set) takes full control:
+  // a past date marks the user as exempt, otherwise use the override date.
+  if (hasExplicit) {
+    const active = explicit > now;
+    return {
+      active,
+      ends_at: active ? new Date(explicit).toISOString() : null,
+      days_left: active ? Math.max(1, Math.ceil((explicit - now) / 86400000)) : 0,
+      total_days: active ? Math.max(1, Math.ceil((explicit - Date.parse(u.created_at)) / 86400000)) : 0
+    };
+  }
+
+  // No override: apply the platform default from account creation.
+  const defaultEnd = graceDays > 0 && u.created_at ? Date.parse(u.created_at) + graceDays * 86400000 : null;
+  const endMs = defaultEnd || 0;
   if (!endMs || endMs <= now) {
     return { active: false, ends_at: null, days_left: 0, total_days: graceDays };
   }

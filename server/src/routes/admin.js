@@ -159,13 +159,38 @@ router.post('/users/:id/grace', (req, res) => {
   if (!user) return fail(res, 'User not found', 404);
   const days = Math.max(0, Number(req.body.days));
   if (!Number.isFinite(days)) return fail(res, 'Days must be a number');
-  const endsAt = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
+  const endsAt = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : '1970-01-01T00:00:00.000Z';
   db.prepare('UPDATE users SET grace_ends_at = ? WHERE id = ?').run(endsAt, user.id);
   notify(db, user.id, 'Hold Period Set', days > 0
     ? `A ${days} day withdrawal hold was applied to your account by an administrator.`
     : 'The withdrawal hold on your account has been removed.');
   const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
   return ok(res, publicUser(updated));
+});
+
+router.delete('/users/:id', (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return fail(res, 'User not found', 404);
+  if (user.role === 'admin') return fail(res, 'Administrator accounts cannot be deleted');
+
+  const email = user.email;
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM notifications WHERE user_id = ?').run(user.id);
+    db.prepare('DELETE FROM copy_trades WHERE user_id = ?').run(user.id);
+    db.prepare('DELETE FROM binary_trades WHERE user_id = ?').run(user.id);
+    db.prepare('DELETE FROM referrals WHERE referrer_id = ? OR referred_id = ?').run(user.id, user.id);
+    db.prepare('DELETE FROM transactions WHERE user_id = ?').run(user.id);
+    db.prepare('UPDATE transactions SET reviewed_by = NULL WHERE reviewed_by = ?').run(user.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+
+  notify(db, req.user.id, 'User Deleted', `User ${email} and all related data were permanently deleted.`);
+  return ok(res, { deleted: true });
 });
 
 router.post('/users/:id/password', (req, res) => {

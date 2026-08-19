@@ -1,9 +1,66 @@
-import { useEffect, useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Copy as CopyIcon, ImageUp, Check } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowDownToLine, ArrowUpFromLine, Copy as CopyIcon, ImageUp, Check, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api, fmtMoney, fmtTime } from '../api';
 import { subscribe } from '../ws';
 import { Card, CardHeader, Badge, Button, Input, PnlText, toast, Spinner } from '../components/ui';
+
+function GraceHoldTimer({ grace, created_at }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const data = useMemo(() => {
+    const startMs = Date.parse(created_at);
+    const endMs = Date.parse(grace.ends_at);
+    const total = endMs - startMs;
+    const remaining = Math.max(0, endMs - now);
+    const pct = total > 0 ? Math.min(100, ((total - remaining) / total) * 100) : 0;
+
+    const days = Math.floor(remaining / 86400000);
+    const hours = Math.floor((remaining % 86400000) / 3600000);
+    const minutes = Math.floor((remaining % 3600000) / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const clock = days > 0
+      ? `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`
+      : `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+
+    return { pct: Math.round(pct), clock };
+  }, [grace, created_at, now]);
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
+          <Lock className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-bold text-amber-300">Withdrawals temporarily locked</div>
+          <p className="mt-0.5 text-xs leading-relaxed text-amber-200/70">
+            New accounts have a {grace.total_days} day hold period before funds can be withdrawn.
+            Your hold ends <span className="font-semibold text-amber-200">{new Date(grace.ends_at).toLocaleDateString()}</span>.
+          </p>
+          <div className="mt-2.5">
+            <div className="flex justify-between text-[11px] font-medium text-amber-300/80">
+              <span>Hold progress</span>
+              <span className="font-mono">{data.pct}%</span>
+            </div>
+            <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-amber-500/10">
+              <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-1000" style={{ width: `${data.pct}%` }} />
+            </div>
+          </div>
+          <div className="mt-2.5 flex items-center justify-between">
+            <span className="text-[11px] text-amber-200/60">Unlocks in</span>
+            <span className="font-mono text-sm font-bold tabular-nums text-amber-300">{data.clock}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Wallet() {
   const { user, refresh } = useAuth();
@@ -158,28 +215,33 @@ export default function Wallet() {
 
         <Card>
           <CardHeader title="Withdraw" subtitle={`Fees ${settings?.withdrawal_fee_pct || 0}% · Tax ${settings?.withdrawal_tax_pct || 0}%`} />
-          <form onSubmit={submitWithdraw} className="space-y-4 p-5">
-            <div>
-              <div className="mb-1.5 flex justify-between text-xs font-semibold text-mx-muted">
-                <span>Amount (min ${settings?.min_withdrawal || '—'})</span>
-                <span>Balance ${fmtMoney(user.balance)}</span>
+          <div className="space-y-4 p-5">
+            {user.grace?.active && (
+              <GraceHoldTimer grace={user.grace} created_at={user.created_at} />
+            )}
+            <form onSubmit={submitWithdraw} className="space-y-4">
+              <div>
+                <div className="mb-1.5 flex justify-between text-xs font-semibold text-mx-muted">
+                  <span>Amount (min ${settings?.min_withdrawal || '—'})</span>
+                  <span>Balance ${fmtMoney(user.balance)}</span>
+                </div>
+                <Input type="number" min={settings?.min_withdrawal || 1} value={wdAmount} onChange={(e) => setWdAmount(e.target.value)} disabled={!!user.grace?.active} />
               </div>
-              <Input type="number" min={settings?.min_withdrawal || 1} value={wdAmount} onChange={(e) => setWdAmount(e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold text-mx-muted">Payout address ({settings?.deposit_network || 'USDT-TRC20'})</label>
-              <Input value={wdAddress} onChange={(e) => setWdAddress(e.target.value)} placeholder="Enter your wallet address" className="font-mono text-xs" />
-            </div>
-            <div className="rounded-xl border border-mx-border bg-mx-bg2 p-3 text-xs">
-              <div className="flex justify-between text-mx-muted"><span>Gross amount</span><span className="font-mono text-mx-text">${fmtMoney(wdAmount)}</span></div>
-              <div className="mt-1 flex justify-between text-mx-muted"><span>Platform fee</span><span className="font-mono text-mx-down">−${fmtMoney(fee)}</span></div>
-              <div className="mt-1 flex justify-between text-mx-muted"><span>Tax</span><span className="font-mono text-mx-down">−${fmtMoney(tax)}</span></div>
-              <div className="mt-1 flex justify-between border-t border-mx-border pt-1.5 font-semibold text-mx-text"><span>You receive</span><span className="font-mono text-mx-up">${fmtMoney(net)}</span></div>
-            </div>
-            <Button type="submit" disabled={wdBusy} variant="ghost" className="w-full py-3">
-              {wdBusy ? <Spinner /> : <ArrowUpFromLine className="h-4 w-4" />} Request Withdrawal
-            </Button>
-          </form>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-mx-muted">Payout address ({settings?.deposit_network || 'USDT-TRC20'})</label>
+                <Input value={wdAddress} onChange={(e) => setWdAddress(e.target.value)} placeholder="Enter your wallet address" className="font-mono text-xs" disabled={!!user.grace?.active} />
+              </div>
+              <div className="rounded-xl border border-mx-border bg-mx-bg2 p-3 text-xs">
+                <div className="flex justify-between text-mx-muted"><span>Gross amount</span><span className="font-mono text-mx-text">${fmtMoney(wdAmount)}</span></div>
+                <div className="mt-1 flex justify-between text-mx-muted"><span>Platform fee</span><span className="font-mono text-mx-down">−${fmtMoney(fee)}</span></div>
+                <div className="mt-1 flex justify-between text-mx-muted"><span>Tax</span><span className="font-mono text-mx-down">−${fmtMoney(tax)}</span></div>
+                <div className="mt-1 flex justify-between border-t border-mx-border pt-1.5 font-semibold text-mx-text"><span>You receive</span><span className="font-mono text-mx-up">${fmtMoney(net)}</span></div>
+              </div>
+              <Button type="submit" disabled={wdBusy || !!user.grace?.active} variant="ghost" className="w-full py-3">
+                {wdBusy ? <Spinner /> : <ArrowUpFromLine className="h-4 w-4" />} Request Withdrawal
+              </Button>
+            </form>
+          </div>
         </Card>
       </div>
 

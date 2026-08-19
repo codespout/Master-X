@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Ban, CheckCircle2, Eye, Save, Coins, KeyRound, Clock } from 'lucide-react';
+import { Search, Ban, CheckCircle2, Eye, Save, Coins, KeyRound, Clock, Trash2 } from 'lucide-react';
 import { api, fmtMoney, fmtTime } from '../../api';
 import { Card, Badge, Input, Button, Select, Modal, toast, Spinner } from '../../components/ui';
 import AdminHeader from './AdminShared';
@@ -16,6 +16,8 @@ export default function AdminUsers() {
   const [pwReset, setPwReset] = useState('');
   const [graceDays, setGraceDays] = useState(0);
   const [graceBusy, setGraceBusy] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
+  const [delBusy, setDelBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
 
   const load = (query = '') => {
@@ -119,6 +121,21 @@ export default function AdminUsers() {
       toast(err.message);
     } finally {
       setGraceBusy(false);
+    }
+  };
+
+  const deleteUser = async () => {
+    setDelBusy(true);
+    try {
+      await api.del(`/api/admin/users/${selected.id}`);
+      toast(`User ${selected.email} permanently deleted`, 'success');
+      setSelected(null);
+      setDelConfirm(false);
+      load(q);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      setDelBusy(false);
     }
   };
 
@@ -363,6 +380,31 @@ export default function AdminUsers() {
                 </Button>
               </form>
               <p className="mt-1.5 text-[11px] text-mx-muted">The user is notified and can sign in with the new password immediately.</p>
+            </div>
+
+            <div className="border-t border-rose-500/30 pt-4">
+              <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-rose-400">
+                <Trash2 className="h-4 w-4" /> Danger Zone
+              </div>
+              {!delConfirm ? (
+                <Button variant="danger" onClick={() => setDelConfirm(true)} className="!py-2">
+                  <Trash2 className="h-3.5 w-3.5" /> Delete This User
+                </Button>
+              ) : (
+                <div className="fade-in space-y-2">
+                  <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                    This permanently deletes <span className="font-mono">{selected.email}</span> and all related records (transactions, trades, referrals, notifications). This cannot be undone.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="danger" onClick={deleteUser} disabled={delBusy} className="!py-2">
+                      {delBusy ? <Spinner /> : <Trash2 className="h-3.5 w-3.5" />} Yes, Delete Permanently
+                    </Button>
+                    <Button variant="ghost" onClick={() => setDelConfirm(false)} disabled={delBusy} className="!py-2">
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

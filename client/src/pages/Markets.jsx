@@ -131,7 +131,7 @@ export default function Markets() {
                 </button>
               ))}
             </div>
-            <TradingViewChart symbol={pair} height={430} />
+            <TradingViewChart symbol={pair} height={430} title={`${pair} · Fixed-Time Trading`} />
           </Card>
 
           <Card>

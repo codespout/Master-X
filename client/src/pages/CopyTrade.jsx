@@ -19,26 +19,28 @@ import { api, fmtMoney, fmtTime } from '../api';
 import { subscribe } from '../ws';
 import { Card, CardHeader, Badge, Button, Input, Countdown, PnlText, Modal, toast, Spinner } from '../components/ui';
 
-function projectedPath(entry, target, points = 80) {
-  const pts = [];
-  for (let i = 0; i <= points; i++) {
-    const f = i / points;
-    const eased = f * f * (3 - 2 * f);
-    const noise = Math.sin(f * Math.PI) * Math.sin(i * 2.3 + 1.7) * entry * 0.0016;
-    pts.push({ t: i, price: entry + (target - entry) * eased + noise });
-  }
-  return pts;
-}
-
 function CopyTradeDetailModal({ signal, onClose }) {
   const myJoin = useMemo(
     () => signal.my_copies && signal.my_copies.find((c) => c.status === 'active'),
     [signal]
   );
   const [now, setNow] = useState(() => Date.now());
+  const [livePrices, setLivePrices] = useState({});
+
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 300);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribe((msg) => {
+      if (msg.type === 'prices') {
+        const map = {};
+        (msg.data || []).forEach((p) => (map[p.symbol] = p));
+        setLivePrices(map);
+      }
+    });
+    return unsub;
   }, []);
 
   const amount = myJoin?.amount || 0;
@@ -57,10 +59,29 @@ function CopyTradeDetailModal({ signal, onClose }) {
   const progress = Math.min(1, Math.max(0, (now - startedAt) / totalMs));
   const progressPct = Math.round(progress * 100);
 
-  const chart = useMemo(() => projectedPath(entry, target), [entry, target]);
+  const live = livePrices[signal.pair]?.price;
+  const nowPrice = live && live > 0 ? live : entry;
+
+  // Blend the live market price toward the predicted strike as the timer closes.
+  // Early on the line tracks the real feed; at expiry it lands exactly on the target.
+  const blend = Math.pow(progress, 1.25);
+  const display = entry ? nowPrice * (1 - blend) + target * blend : nowPrice;
+  const currentProjected = Number.isFinite(display) ? display : entry;
+
+  const chart = useMemo(() => {
+    const pts = [];
+    const steps = 80;
+    for (let i = 0; i <= steps; i++) {
+      const f = i / steps;
+      const w = Math.pow(f, 1.25);
+      const smoothLive = entry + (live ? (nowPrice - entry) : 0) * Math.sin((f * Math.PI) / 2);
+      const p = entry + (smoothLive - entry) * (1 - w) + (target - entry) * w;
+      pts.push({ t: i, price: Number.isFinite(p) ? p : entry });
+    }
+    return pts;
+  }, [entry, target, live, nowPrice]);
   const revealed = Math.max(2, Math.min(chart.length - 1, Math.floor(progress * chart.length)));
   const visible = chart.slice(0, revealed + 1);
-  const currentProjected = visible[visible.length - 1]?.price || entry;
 
   const tooltipStyle = { background: '#0d1524', border: '1px solid #2a3b59', borderRadius: 12, fontSize: 11 };
 
@@ -107,10 +128,10 @@ function CopyTradeDetailModal({ signal, onClose }) {
         <div className="rounded-xl border border-mx-border bg-mx-bg2 p-2">
           <div className="mb-1 flex items-center justify-between px-2 pt-1">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-mx-muted">
-              <BarChart3 className="h-3.5 w-3.5 text-mx-accent" /> Projected price path — {signal.pair}
+              <BarChart3 className="h-3.5 w-3.5 text-mx-accent" /> Live market price — {signal.pair}
             </div>
             <span className={`font-mono text-xs font-bold ${isWin ? 'text-mx-up' : 'text-mx-down'}`}>
-              {isWin ? '+' : '-'}{pct}% target
+              {isWin ? '+' : '-'}{pct}% strike
             </span>
           </div>
           <div className="h-44">
@@ -140,10 +161,10 @@ function CopyTradeDetailModal({ signal, onClose }) {
           </div>
           {entry > 0 && (
             <div className="flex items-center justify-between px-2 pb-2 pt-1 font-mono text-xs">
-              <span className="text-mx-muted">Projected</span>
+              <span className="text-mx-muted">Entry</span>
               <span className="font-bold text-white">${currentProjected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               <span className="text-mx-muted">
-                Target ${target.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                Strike ${target.toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </span>
             </div>
           )}

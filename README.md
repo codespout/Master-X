@@ -103,9 +103,11 @@ A full-stack, dark-mode fintech web application featuring dual trading modes (**
 
 ## Running Locally
 
+Requires **Node.js 22.5 or newer** (uses the built-in `node:sqlite` module).
+
 ```bash
 npm install          # installs server + client workspaces
-npm run seed         # creates admin + demo users + sample data
+npm run seed         # optional: creates admin + demo users + sample data
 npm run dev:server   # API on :3001
 npm run dev:client   # Vite on :5173 (proxies /api, /uploads, /ws)
 ```
@@ -115,5 +117,69 @@ Or start both together:
 ```bash
 npm run dev
 ```
+
+## Deploying to Your Own Server
+
+The production build serves the React frontend, the API and the WebSocket from a **single port** — you only need to expose one port.
+
+**Prerequisites:** a Linux VPS/shared host with **Node.js ≥ 22.5** (e.g. via NodeSource, or your host's "Node.js app" installer), and npm.
+
+1. **Build locally** (or use the included `client/dist` from the release package):
+   ```bash
+   npm install
+   npm run build
+   ```
+2. **Upload** the project folder to your server (e.g. `/var/www/masterx`). Exclude nothing — `node_modules` and `server/data` will be regenerated. Keep `client/dist`, `package.json`, `package-lock.json`, `server/`.
+3. **On the server**, from the project root:
+   ```bash
+   npm install --omit=dev   # runtime deps only (dist is pre-built)
+   cp .env.example .env
+   ```
+   Then edit `.env`:
+   - `JWT_SECRET` — generate with `openssl rand -hex 32` and paste it. This is critical; the default is insecure.
+   - `ADMIN_EMAIL` / `ADMIN_PASSWORD` — the initial admin account (created automatically on first start). Use a strong password and change it again in the UI after first login.
+   - `PORT` — any free port (default `3001`).
+4. **Start:**
+   ```bash
+   npm start
+   ```
+   Verify: `curl http://localhost:3001/api/health` returns `{"ok":true,...}`.
+5. **Keep it running** — run it under a process manager so it survives restarts:
+   ```bash
+   # systemd unit (recommended) — see below
+   # or: pm2 start npm --name masterx -- start && pm2 save && pm2 startup
+   ```
+6. **Reverse proxy + HTTPS + WSS** — put Nginx or Caddy in front of the Node port:
+   ```nginx
+   location / {
+       proxy_pass http://127.0.0.1:3001;
+       proxy_http_version 1.1;
+       proxy_set_header Upgrade $http_upgrade;      # WebSocket support
+       proxy_set_header Connection "upgrade";
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+   }
+   ```
+   Example systemd unit (`/etc/systemd/system/masterx.service`):
+   ```ini
+   [Unit]
+   Description=MASTER X
+   After=network.target
+   [Service]
+   WorkingDirectory=/var/www/masterx
+   ExecStart=/usr/bin/npm start
+   Restart=always
+   Environment=NODE_ENV=production
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+### Production safety checklist
+
+- **Change the JWT secret and admin password** before going live (the server logs a warning if `JWT_SECRET` is still the default).
+- **Keep `.env` out of version control** (already gitignored) and set `DB_PATH`/`UPLOAD_DIR` outside the web root if you want.
+- **Back up the database** (`server/data/masterx.db`) — it holds all users, balances and transactions. Copy it while the app is stopped, or use SQLite's `VACUUM INTO` for a hot backup.
+- The admin panel has a **2FA (TOTP)** option in Settings → Security — enable it for the admin account.
+- `npm run seed` adds demo users; **skip it** on production to start with only the admin account.
 
 Production build of the frontend: `npm run build` → `client/dist`.
