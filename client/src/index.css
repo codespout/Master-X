@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+  --color-mx-bg: #070b14;
+  --color-mx-bg2: #0a101c;
+  --color-mx-card: #0d1524;
+  --color-mx-card2: #131d30;
+  --color-mx-border: #1c2940;
+  --color-mx-border2: #2a3b59;
+  --color-mx-up: #22c55e;
+  --color-mx-down: #ef4444;
+  --color-mx-accent: #38bdf8;
+  --color-mx-gold: #f5b301;
+  --color-mx-text: #e2e8f0;
+  --color-mx-muted: #8ba3c7;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-mx-bg);
+  color: var(--color-mx-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #223450;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2f4a6e;
+}
+
+.glow-up {
+  box-shadow: 0 0 24px rgba(34, 197, 94, 0.15);
+}
+.glow-down {
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.15);
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-in {
+  animation: fade-in 0.25s ease-out both;
+}
